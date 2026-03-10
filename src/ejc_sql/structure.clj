@@ -26,7 +26,8 @@
    [ejc-sql.cache :refer [cache cache-creation-promises]]
    [ejc-sql.connect :as c]
    [ejc-sql.output :as o]
-   [ejc-sql.keywords :as k]))
+   [ejc-sql.keywords :as k]
+   [ejc-sql.pool :as pool]))
 
 (defn- safe-query
   "Return `sql` query result or nil in case of error."
@@ -36,8 +37,8 @@
     (if column-name
       [[(keyword column-name)]
        (mapv (keyword column-name)
-             (row-fn (j/query db (list sql) {:as-arrays? false})))]
-      (j/query db (list sql) {:as-arrays? true
+             (row-fn (j/query (pool/get-pooled-db db) (list sql) {:as-arrays? false})))]
+      (j/query (pool/get-pooled-db db) (list sql) {:as-arrays? true
                               :row-fn row-fn}))
     (catch Exception _)))
 
@@ -57,7 +58,7 @@
   (when sql
     (rest
      (map last
-          (j/query db (list sql) {:as-arrays? true})))))
+          (j/query (pool/get-pooled-db db) (list sql) {:as-arrays? true})))))
 
 (defn- db->value
   "Execute `sql`, return first value of first column of result set as result."

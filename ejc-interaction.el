@@ -276,6 +276,19 @@
                :namespace ejc-sql.connect
                :return-type :eval)
 
+(clomacs-defun ejc-close-all-pools
+               close-all-pools
+               :lib-name "ejc-sql"
+               :namespace ejc-sql.pool
+               :doc "Close all HikariCP connection pools.")
+
+(clomacs-defun ejc-pool-status
+               pool-status
+               :lib-name "ejc-sql"
+               :namespace ejc-sql.pool
+               :return-type :eval
+               :doc "Return HikariCP pool metrics for debugging.")
+
 (defun ejc-invalidate-cache ()
   "Clean current connection cache (database owners and tables list)."
   (interactive)
@@ -314,10 +327,18 @@ Print all connections cache otherwise."
     (if (derived-mode-p 'sql-mode)
         (setq mode-name "SQL"))))
 
+(defun ejc-show-pool-status ()
+  "Display HikariCP pool metrics in a temporary buffer."
+  (interactive)
+  (let ((status (ejc-pool-status)))
+    (with-output-to-temp-buffer "*ejc-pool-status*"
+      (princ (format "Pool Status:\n%s" (pp-to-string status))))))
+
 (defun ejc-quit-connection ()
   "Stop nREPL process, mark ejc-sql-mode buffers disconnected."
   (interactive)
   (when (y-or-n-p  "Are you sure you want to close all jdbc connections?")
+    (ignore-errors (ejc-close-all-pools))
     (ejc-httpd-stop)
     (cider--close-connection (clomacs-get-connection "ejc-sql"))
     ;; Update modeline of ejc-sql-mode buffers - mark as disconnected.

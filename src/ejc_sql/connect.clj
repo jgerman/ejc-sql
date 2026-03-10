@@ -23,7 +23,8 @@
             [clomacs :refer [clomacs-defn]]
             [ejc-sql.output :as o]
             [ejc-sql.lib :refer [select? ddl? clob-to-string-row *max-column-width*]]
-            [ejc-sql.cache :refer [invalidate-cache]])
+            [ejc-sql.cache :refer [invalidate-cache]]
+            [ejc-sql.pool :as pool])
   (:import [java.sql SQLException]))
 
 (def db
@@ -31,14 +32,8 @@
 For debug purpose."
   (atom nil))
 
-(defn set-db [{:keys [proxy-host proxy-port] :as ejc-db}]
-  (if (and proxy-host proxy-port)
-    (do
-      (System/setProperty "socksProxyHost" proxy-host)
-      (System/setProperty "socksProxyPort" proxy-port))
-    (do
-      (System/clearProperty "socksProxyHost")
-      (System/clearProperty "socksProxyPort")))
+(defn set-db [ejc-db]
+  ;; Proxy properties are now managed by pool/proxy-aware-datasource under lock.
   (reset! db ejc-db))
 
 (def current-query
@@ -100,9 +95,10 @@ For debug purpose."
                             "restart the REPL.\n"
                             msg)}))]
     (try
-      (clomacs/format-result
-       {:status (.isValid (j/get-connection db) timeout)
-        :message "Connected."})
+      (with-open [conn (j/get-connection (pool/get-pooled-db db))]
+        (clomacs/format-result
+         {:status (.isValid conn timeout)
+          :message "Connected."}))
       (catch AbstractMethodError e
         (abstract-is-valid (.getMessage e)))
       (catch java.sql.SQLFeatureNotSupportedException e
@@ -166,7 +162,7 @@ SELECT * FROM urls WHERE path like '%http://localhost%'"
   (set-db db)
   (java.util.Locale/setDefault (java.util.Locale. "UK"))
   (try
-    (with-open [conn (j/get-connection db)]
+    (with-open [conn (j/get-connection (pool/get-pooled-db db))]
       (let [statement (.createStatement conn)]
         (mapv (fn [sql]
                 (if (select? sql)
@@ -188,7 +184,7 @@ SELECT * FROM urls WHERE path like '%http://localhost%'"
                      (swap! current-query assoc
                             :stmt stmt
                             :conn conn)
-                     (j/query db stmt
+                     (j/query {:connection conn} stmt
                               {:as-arrays? true
                                :result-set-fn
                                (fn [rs]
@@ -326,7 +322,7 @@ SELECT * FROM urls WHERE path like '%http://localhost%'"
   (try
     {:success true
      :result (j/db-query-with-resultset
-              db
+              (pool/get-pooled-db db)
               [(str "SELECT nodata.* "
                     "FROM (" sql ") nodata "
                     "WHERE 0 = 1")]
